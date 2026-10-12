@@ -1,0 +1,1344 @@
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>ECHO ROOM: THE CAMPUS THAT FORGOT</title>
+<!-- Three.js CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  * { box-sizing: border-box; user-select: none; -webkit-user-select: none; margin: 0; padding: 0; }
+  body, html { width: 100%; height: 100%; overflow: hidden; background: #040711; font-family: 'Courier New', Courier, monospace; color: #e0f2fe; }
+
+  #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+
+  /* Ambient CRT Scanline Effect */
+  .scanlines {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%),
+                linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 0, 0.03));
+    background-size: 100% 3px, 3px 100%;
+    pointer-events: none; z-index: 10; opacity: 0.7;
+  }
+
+  /* HUD Layout */
+  #hud {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 20; pointer-events: none;
+    display: flex; flex-direction: column; justify-content: space-between; padding: 16px;
+  }
+  .hud-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .badge-card {
+    background: rgba(8, 18, 37, 0.82);
+    border: 1px solid rgba(56, 189, 248, 0.35);
+    border-radius: 4px; padding: 10px 14px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), inset 0 0 10px rgba(56, 189, 248, 0.1);
+    backdrop-filter: blur(6px); pointer-events: auto;
+  }
+  .title-sub { font-size: 10px; letter-spacing: 2px; color: #38bdf8; text-transform: uppercase; font-weight: 700; }
+  .loop-timer {
+    font-size: 32px; font-weight: 900; color: #f59e0b; letter-spacing: 2px;
+    text-shadow: 0 0 12px rgba(245, 158, 11, 0.6);
+    display: flex; align-items: baseline; gap: 6px;
+  }
+  .loop-timer.urgent { color: #ef4444; text-shadow: 0 0 16px rgba(239, 68, 68, 0.8); animation: pulseAlert 0.7s infinite alternate; }
+  @keyframes pulseAlert { from { opacity: 0.7; } to { opacity: 1; transform: scale(1.02); } }
+
+  .echo-indicator { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: #67e8f9; margin-top: 4px; }
+  .echo-dot { width: 8px; height: 8px; border-radius: 50%; background: #06b6d4; box-shadow: 0 0 8px #06b6d4; }
+  .echo-recording .echo-dot { background: #ef4444; box-shadow: 0 0 8px #ef4444; animation: blink 0.8s infinite; }
+  @keyframes blink { 50% { opacity: 0.2; } }
+
+  .hud-right { display: flex; flex-direction: column; gap: 8px; max-width: 320px; align-items: flex-end; }
+  .health-bar-container { width: 180px; height: 8px; background: #0f172a; border: 1px solid #334155; border-radius: 4px; overflow: hidden; margin-top: 4px; }
+  .health-bar-fill { width: 0%; height: 100%; background: linear-gradient(90deg, #10b981, #34d399); box-shadow: 0 0 8px #10b981; transition: width 0.4s ease; }
+  .task-list { list-style: none; font-size: 11px; line-height: 1.5; color: #94a3b8; margin-top: 6px; }
+  .task-list li { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+  .task-list li.done { color: #34d399; text-decoration: line-through; }
+
+  /* Center Prompts */
+  .interaction-prompt {
+    position: absolute; top: 68%; left: 50%; transform: translate(-50%, -50%);
+    background: rgba(15, 23, 42, 0.92); border: 1px solid #f59e0b;
+    box-shadow: 0 0 20px rgba(245, 158, 11, 0.4);
+    padding: 10px 22px; border-radius: 6px; font-size: 14px; color: #fbbf24;
+    text-align: center; pointer-events: auto; cursor: pointer; display: none;
+    animation: bouncePrompt 1.2s infinite ease-in-out; z-index: 40; max-width: 86vw;
+  }
+  @keyframes bouncePrompt {
+    0%, 100% { transform: translate(-50%, -50%); }
+    50% { transform: translate(-50%, -56%); }
+  }
+  .interaction-prompt kbd { background: #d97706; color: #050505; padding: 2px 7px; border-radius: 3px; font-weight: bold; margin-right: 5px; }
+
+  /* Bottom Control Bar */
+  .hud-bottom { display: flex; justify-content: space-between; align-items: flex-end; pointer-events: auto; gap: 10px; flex-wrap: wrap; }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .hud-btn {
+    background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.4); color: #e0f2fe;
+    padding: 8px 14px; border-radius: 4px; font-family: inherit; font-size: 11px; cursor: pointer;
+    display: flex; align-items: center; gap: 6px; transition: all 0.2s;
+  }
+  .hud-btn:hover { background: rgba(56, 189, 248, 0.2); border-color: #38bdf8; box-shadow: 0 0 10px rgba(56, 189, 248, 0.4); }
+  .hud-btn:active { transform: scale(0.96); }
+
+  /* Mobile Controls */
+  .touch-controls { display: none; position: absolute; bottom: 18px; left: 18px; width: 128px; height: 128px; pointer-events: auto; z-index: 45; }
+  .touch-btn-pad { position: relative; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.5); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 50%; }
+  .touch-dir-btn {
+    position: absolute; width: 38px; height: 38px;
+    background: rgba(56, 189, 248, 0.2); border: 1px solid #38bdf8; border-radius: 6px;
+    color: white; display: flex; align-items: center; justify-content: center; font-weight: bold;
+    touch-action: none;
+  }
+  .touch-interact {
+    display: none; position: absolute; bottom: 30px; right: 20px;
+    width: 96px; height: 96px; border-radius: 50%;
+    background: rgba(245, 158, 11, 0.22); border: 2px solid #f59e0b; color: #fbbf24;
+    font-size: 13px; font-weight: bold; letter-spacing: 1px;
+    align-items: center; justify-content: center; z-index: 45; pointer-events: auto; touch-action: none;
+  }
+
+  /* Modal Windows */
+  .modal-overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(3, 7, 18, 0.88); backdrop-filter: blur(8px);
+    z-index: 100; display: none; align-items: center; justify-content: center; pointer-events: auto;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal-box {
+    width: 90%; max-width: 620px; background: #091325;
+    border: 2px solid #38bdf8; border-radius: 6px; padding: 24px;
+    box-shadow: 0 0 40px rgba(56, 189, 248, 0.25); position: relative; max-height: 85vh; overflow-y: auto;
+  }
+  .modal-box h2 {
+    font-size: 20px; color: #38bdf8; letter-spacing: 2px; margin-bottom: 12px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid rgba(56, 189, 248, 0.3); padding-bottom: 8px; gap: 10px;
+  }
+  .evidence-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 14px; }
+  .evidence-item { background: rgba(15, 23, 42, 0.7); border: 1px solid #1e293b; border-radius: 4px; padding: 12px; transition: border-color 0.2s; }
+  .evidence-item.found { border-color: #f59e0b; background: rgba(245, 158, 11, 0.05); }
+  .evidence-header { display: flex; justify-content: space-between; font-weight: bold; color: #f59e0b; font-size: 13px; gap: 8px; }
+  .evidence-desc { font-size: 12px; color: #cbd5e1; margin-top: 5px; line-height: 1.4; }
+  .close-modal-btn {
+    background: #38bdf8; color: #040711; border: none; padding: 8px 18px;
+    border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 18px; float: right;
+  }
+  .close-modal-btn:hover { background: #7dd3fc; }
+
+  /* Message ticker */
+  #narrative-banner {
+    position: absolute; top: 78px; left: 50%; transform: translateX(-50%);
+    background: rgba(6, 11, 24, 0.92); border: 1px solid #38bdf8; color: #bae6fd;
+    padding: 8px 18px; border-radius: 20px; font-size: 12px; letter-spacing: 1px;
+    pointer-events: none; opacity: 0; transition: opacity 0.5s ease;
+    white-space: normal; max-width: 90vw; text-align: center;
+    z-index: 30; box-shadow: 0 0 15px rgba(56, 189, 248, 0.3);
+  }
+
+  .hint-strip { font-size: 10px; color: #475569; text-align: right; line-height: 1.6; }
+
+  @media (max-width: 700px) {
+    .hud-top { flex-direction: column; }
+    .hud-right { align-items: flex-start; max-width: 100%; }
+    .touch-controls, .touch-interact { display: flex; }
+    .interaction-prompt { top: 58%; font-size: 12px; }
+    .hint-strip { display: none; }
+    .loop-timer { font-size: 24px; }
+    #hud { padding: 10px; }
+    .hud-bottom { margin-bottom: 130px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+<div class="scanlines"></div>
+
+<!-- Narrative Banner -->
+<div id="narrative-banner">LEVEL 1: THE LAST ATTENDANCE (4:20 PM)</div>
+
+<!-- Game HUD -->
+<div id="hud">
+  <div class="hud-top">
+    <div class="badge-card">
+      <div class="title-sub">Time Anomaly / Loop Record</div>
+      <div class="loop-timer" id="timerDisplay">01:30<span style="font-size:12px; color:#94a3b8;">&nbsp;PM 4:20</span></div>
+      <div class="echo-indicator" id="echoStatusBadge">
+        <div class="echo-dot"></div>
+        <span id="echoStatusText">ECHO READY (NO PAST GHOST)</span>
+      </div>
+      <div style="font-size: 10px; color:#64748b; margin-top:4px;">Press [R] to Fast-Forward / Loop Reset</div>
+    </div>
+
+    <div class="hud-right">
+      <div class="badge-card" style="width: 100%;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline;">
+          <div class="title-sub">Campus Sustainability</div>
+          <span id="campusHealthVal" style="font-weight: bold; color: #10b981; font-size: 13px;">0%</span>
+        </div>
+        <div class="health-bar-container">
+          <div class="health-bar-fill" id="campusHealthBar"></div>
+        </div>
+        <ul class="task-list">
+          <li id="task-fuse"><span>[ ]</span> Restore Breaker / Lighting</li>
+          <li id="task-tap"><span>[ ]</span> Repair Leaking Water Spigot</li>
+          <li id="task-battery"><span>[ ]</span> Sort Discarded Lithium Cells</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Context Interaction Prompt -->
+  <div class="interaction-prompt" id="promptBox">
+    <kbd>E</kbd><span id="promptText">Examine Object</span>
+  </div>
+
+  <div class="hud-bottom">
+    <div class="btn-row">
+      <button class="hud-btn" id="btn-journal">📂 Evidence Journal (<span id="evidenceCount">0</span>/3)</button>
+      <button class="hud-btn" id="btn-reset">↺ Manual Loop Reset (R)</button>
+      <button class="hud-btn" id="btn-mute">🔊 Audio: <span id="audioStatus">ON</span></button>
+      <button class="hud-btn" id="btn-help">❓ Guide</button>
+    </div>
+    <div class="hint-strip">
+      <div>MOVE: [W,A,S,D] or [ARROWS] &nbsp;|&nbsp; INTERACT: [E], [SPACE], CLICK PROMPT OR OBJECT</div>
+      <div>COOPERATE WITH YOUR ECHO TO UNLOCK THE SAFE</div>
+    </div>
+  </div>
+</div>
+
+<!-- Touch On-Screen D-Pad for Mobile -->
+<div class="touch-controls" id="touchPad">
+  <div class="touch-btn-pad">
+    <div class="touch-dir-btn" style="top:2px; left:45px;" id="btn-up">▲</div>
+    <div class="touch-dir-btn" style="bottom:2px; left:45px;" id="btn-down">▼</div>
+    <div class="touch-dir-btn" style="left:2px; top:45px;" id="btn-left">◀</div>
+    <div class="touch-dir-btn" style="right:2px; top:45px;" id="btn-right">▶</div>
+  </div>
+</div>
+<div class="touch-interact" id="btn-interact">INTERACT<br>(E)</div>
+
+<!-- Modal: Evidence Journal -->
+<div class="modal-overlay" id="journalModal">
+  <div class="modal-box">
+    <h2>CASE FILE: WHO KILLED CAMPUS POWER? <span style="font-size:12px; color:#38bdf8;">CLASS 104</span></h2>
+    <p style="font-size: 12px; color:#94a3b8; line-height: 1.4;">
+      A catastrophic power outage struck at 4:20 PM. Student <strong>Maya Lin</strong> was framed for tampering with the transformer.
+      Find three conclusive records to prove the truth.
+    </p>
+    <div class="evidence-grid">
+      <div class="evidence-item" id="ev-card-1">
+        <div class="evidence-header">
+          <span>1. Torn Attendance Sheet</span>
+          <span class="status-tag">LOCKED</span>
+        </div>
+        <div class="evidence-desc" id="ev-desc-1">Undiscovered. Look around the center student desks.</div>
+      </div>
+      <div class="evidence-item" id="ev-card-2">
+        <div class="evidence-header">
+          <span>2. Altered Maintenance Log</span>
+          <span class="status-tag">LOCKED</span>
+        </div>
+        <div class="evidence-desc" id="ev-desc-2">Undiscovered. Locked behind the synchronized dual-relay wall compartment.</div>
+      </div>
+      <div class="evidence-item" id="ev-card-3">
+        <div class="evidence-header">
+          <span>3. Substation Trip Log</span>
+          <span class="status-tag">LOCKED</span>
+        </div>
+        <div class="evidence-desc" id="ev-desc-3">Undiscovered. Encrypted inside the classroom main electrical panel (east wall).</div>
+      </div>
+    </div>
+    <button class="close-modal-btn" id="btn-close-journal">Return to Room</button>
+  </div>
+</div>
+
+<!-- Modal: Help / Guide -->
+<div class="modal-overlay" id="helpModal">
+  <div class="modal-box">
+    <h2>INVESTIGATION PROTOCOL</h2>
+    <p style="font-size: 13px; line-height: 1.6; color: #cbd5e1;">
+      <strong>THE 90-SECOND ECHO PHENOMENON:</strong><br>
+      • Every loop lasts exactly 90 seconds. When time runs out or you trigger a manual reset (<kbd>R</kbd>), you awake back at the entrance.<br>
+      • A cyan ghost <strong>ECHO</strong> will replay your exact movements from the previous loop.<br>
+      • <strong>Switch Puzzle:</strong> A heavy magnetic floor switch near the blackboard holds open a hidden vault on the opposite wall. Step on the plate, reset the loop, and let your Echo stand on it while you sprint to grab the report!<br><br>
+      <strong>CAMPUS SUSTAINABILITY:</strong><br>
+      • Repair the dripping tap, fix the breaker load, and deposit the battery box to boost campus stability to 100%.<br><br>
+      <strong>INTERACTION:</strong><br>
+      • Walk close to a glowing object and press <kbd>E</kbd>, <kbd>SPACE</kbd>, tap the prompt, or click the object itself.<br><br>
+      <strong>EXIT:</strong> Once all 3 records are collected, interact with the Locked Double Door.
+    </p>
+    <button class="close-modal-btn" id="btn-close-help">Close</button>
+  </div>
+</div>
+
+<!-- Modal: Victory / Ending -->
+<div class="modal-overlay" id="victoryModal">
+  <div class="modal-box" style="border-color: #10b981; box-shadow: 0 0 50px rgba(16, 185, 129, 0.4);">
+    <h2 style="color: #34d399;">EVIDENCE CONVERGENCE: TRUTH RESTORED</h2>
+    <p style="font-size: 13px; line-height: 1.6; color: #e2e8f0; margin-top: 10px;">
+      <strong>REPORT CONCLUDED:</strong><br><br>
+      1. <strong>Torn Attendance Sheet:</strong> Proves Maya Lin answered roll call at 4:19 PM, seated in Class 104, making physical sabotage of the grid impossible.<br>
+      2. <strong>Altered Maintenance Warning:</strong> Discloses that Facilities had flagged an imminent phase-inverter failure 3 days prior, stamped "IGNORE - BUDGET AUDIT PENDING".<br>
+      3. <strong>Breaker Substation Log:</strong> Validates an internal hardware surge triggered the blackout, which administrators fraudulently pinned on a student scapegoat.<br><br>
+      With the room's energy stabilized and the falsified evidence recovered, the door unlatches. Maya's record is cleared.
+    </p>
+    <div style="margin-top: 18px; padding: 12px; background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; border-radius: 4px; font-size: 12px; color: #6ee7b7;">
+      ★ LEVEL 1 COMPLETE: The Last Attendance solved in time-loop synchronicity.
+    </div>
+    <button class="close-modal-btn" id="btn-replay" style="background:#10b981; margin-top: 20px;">Replay Investigation</button>
+  </div>
+</div>
+
+<script>
+/* =========================================================
+   AUDIO SYNTHESIZER (Web Audio API)
+   ========================================================= */
+class SoundEngine {
+  constructor() {
+    this.ctx = null;
+    this.muted = false;
+    this.humNode = null;
+    this.init();
+  }
+  init() {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (AudioContext) {
+        this.ctx = new AudioContext();
+        this.startHum();
+      }
+    } catch (e) {}
+  }
+  ensureContext() {
+    try {
+      if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+      if (!this.ctx) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) { this.ctx = new AudioContext(); this.startHum(); }
+      }
+    } catch (e) {}
+  }
+  startHum() {
+    if (!this.ctx || this.humNode) return;
+    try {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(55, this.ctx.currentTime);
+      gain.gain.setValueAtTime(0.015, this.ctx.currentTime);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start();
+      this.humNode = osc;
+    } catch (e) {}
+  }
+  playTone(freq, type, duration, volume) {
+    if (this.muted || !this.ctx) return;
+    this.ensureContext();
+    try {
+      const t = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = type || 'sine';
+      osc.frequency.setValueAtTime(freq, t);
+      gain.gain.setValueAtTime(volume || 0.1, t);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + (duration || 0.25));
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + (duration || 0.25));
+    } catch (e) {}
+  }
+  chimeClue() {
+    if (this.muted || !this.ctx) return;
+    this.ensureContext();
+    [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
+      setTimeout(() => this.playTone(freq, 'triangle', 0.6, 0.15), idx * 100);
+    });
+  }
+  clickSwitch() { this.playTone(180, 'square', 0.08, 0.12); }
+  dripWater() { this.playTone(1200 + Math.random() * 200, 'sine', 0.05, 0.08); }
+  loopWhoosh() {
+    if (this.muted || !this.ctx) return;
+    this.ensureContext();
+    try {
+      const t = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(300, t);
+      osc.frequency.exponentialRampToValueAtTime(80, t + 0.8);
+      gain.gain.setValueAtTime(0.2, t);
+      gain.gain.linearRampToValueAtTime(0.001, t + 0.8);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.8);
+    } catch (e) {}
+  }
+  toggle() { this.muted = !this.muted; return !this.muted; }
+}
+
+const sound = new SoundEngine();
+
+/* =========================================================
+   GAME STATE & DATA
+   ========================================================= */
+const LOOP_DURATION = 90.0;
+let loopRemaining = LOOP_DURATION;
+let loopNumber = 1;
+
+let currentRecording = [];      // frames recorded this loop
+let echoPlaybackTrail = null;   // frames from previous loop
+
+const evidenceState = {
+  attendanceSheet: false,
+  maintenanceLog: false,
+  circuitBreaker: false
+};
+const taskState = { fuse: false, tap: false, battery: false };
+let campusHealth = 0;
+let switchIsPressed = false;
+let wallSafeOpen = false;
+
+const keys = { w: false, a: false, s: false, d: false };
+const playerSpeed = 5.8;
+const playerRadius = 0.5;
+
+/* =========================================================
+   THREE.JS SETUP & ATMOSPHERE
+   ========================================================= */
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x060c18);
+scene.fog = new THREE.FogExp2(0x071124, 0.045);
+
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 100);
+const cameraOffset = new THREE.Vector3(0, 10.5, 9.5);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+container.appendChild(renderer.domElement);
+
+const ambientLight = new THREE.AmbientLight(0x0f2347, 0.7);
+scene.add(ambientLight);
+
+const windowSunLight = new THREE.DirectionalLight(0xf59e0b, 1.2);
+windowSunLight.position.set(-16, 12, -4);
+windowSunLight.castShadow = true;
+windowSunLight.shadow.mapSize.width = 1024;
+windowSunLight.shadow.mapSize.height = 1024;
+windowSunLight.shadow.camera.near = 0.5;
+windowSunLight.shadow.camera.far = 40;
+windowSunLight.shadow.camera.left = -14;
+windowSunLight.shadow.camera.right = 14;
+windowSunLight.shadow.camera.top = 14;
+windowSunLight.shadow.camera.bottom = -14;
+scene.add(windowSunLight);
+
+const ceilingLight = new THREE.PointLight(0x38bdf8, 1.3, 16);
+ceilingLight.position.set(0, 5.2, 0);
+ceilingLight.castShadow = true;
+scene.add(ceilingLight);
+
+const dustCount = 350;
+const dustGeometry = new THREE.BufferGeometry();
+const dustPositions = new Float32Array(dustCount * 3);
+for (let i = 0; i < dustCount * 3; i += 3) {
+  dustPositions[i] = (Math.random() - 0.5) * 26;
+  dustPositions[i + 1] = Math.random() * 6.5;
+  dustPositions[i + 2] = (Math.random() - 0.5) * 22;
+}
+dustGeometry.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
+const dustMaterial = new THREE.PointsMaterial({
+  color: 0xf59e0b, size: 0.065, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending
+});
+const dustParticles = new THREE.Points(dustGeometry, dustMaterial);
+scene.add(dustParticles);
+
+/* =========================================================
+   CLASSROOM ENVIRONMENT BUILDER
+   ========================================================= */
+const ROOM_WIDTH = 22;
+const ROOM_DEPTH = 18;
+const ROOM_HEIGHT = 6.2;
+
+const floorGeo = new THREE.PlaneGeometry(ROOM_WIDTH, ROOM_DEPTH);
+const floorMat = new THREE.MeshStandardMaterial({ color: 0x0c1422, roughness: 0.8, metalness: 0.1 });
+const floor = new THREE.Mesh(floorGeo, floorMat);
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+const ceilingGeo = new THREE.PlaneGeometry(ROOM_WIDTH, ROOM_DEPTH);
+const ceilingMat = new THREE.MeshStandardMaterial({ color: 0x090f1d, roughness: 0.95 });
+const ceiling = new THREE.Mesh(ceilingGeo, ceilingMat);
+ceiling.rotation.x = Math.PI / 2;
+ceiling.position.y = ROOM_HEIGHT;
+scene.add(ceiling);
+
+const wallMat = new THREE.MeshStandardMaterial({ color: 0x0e1b30, roughness: 0.85 });
+const createWall = (w, h, d, x, y, z) => {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
+  mesh.position.set(x, y, z);
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+  return mesh;
+};
+createWall(ROOM_WIDTH, ROOM_HEIGHT, 0.4, 0, ROOM_HEIGHT / 2, -ROOM_DEPTH / 2);
+createWall(ROOM_WIDTH, ROOM_HEIGHT, 0.4, 0, ROOM_HEIGHT / 2, ROOM_DEPTH / 2);
+createWall(0.4, ROOM_HEIGHT, ROOM_DEPTH, -ROOM_WIDTH / 2, ROOM_HEIGHT / 2, 0);
+createWall(0.4, ROOM_HEIGHT, ROOM_DEPTH, ROOM_WIDTH / 2, ROOM_HEIGHT / 2, 0);
+
+// Blackboard
+const blackboard = new THREE.Mesh(
+  new THREE.BoxGeometry(9, 3, 0.1),
+  new THREE.MeshStandardMaterial({ color: 0x041f1a, roughness: 0.7 })
+);
+blackboard.position.set(0, 3, -ROOM_DEPTH / 2 + 0.15);
+scene.add(blackboard);
+
+const boardCanvas = document.createElement('canvas');
+boardCanvas.width = 512; boardCanvas.height = 256;
+const ctxB = boardCanvas.getContext('2d');
+ctxB.fillStyle = '#062822'; ctxB.fillRect(0, 0, 512, 256);
+ctxB.fillStyle = '#bae6fd'; ctxB.font = '22px Courier New';
+ctxB.fillText("ADVANCED POWER SYSTEMS - OCT 14", 25, 45);
+ctxB.fillStyle = '#f59e0b';
+ctxB.fillText("LAB AUDIT 4:20 PM [CANCELLED]", 25, 85);
+ctxB.fillStyle = '#94a3b8'; ctxB.font = '16px Courier New';
+ctxB.fillText("* Attendance mandatory for substation clearance", 25, 130);
+ctxB.fillText("* Transformer overheating: Disregard false alert?", 25, 160);
+ctxB.fillStyle = '#ef4444';
+ctxB.fillText("WARNING: SUBSTATION PHASE FAULT DETECTED", 25, 205);
+const boardTex = new THREE.CanvasTexture(boardCanvas);
+const boardTexMesh = new THREE.Mesh(
+  new THREE.PlaneGeometry(8.8, 2.8),
+  new THREE.MeshBasicMaterial({ map: boardTex, transparent: true })
+);
+boardTexMesh.position.set(0, 3, -ROOM_DEPTH / 2 + 0.22);
+scene.add(boardTexMesh);
+
+// Windows (left wall)
+for (let w = -5; w <= 5; w += 5) {
+  const windowFrame = new THREE.Mesh(
+    new THREE.BoxGeometry(0.2, 3.2, 2.8),
+    new THREE.MeshStandardMaterial({ color: 0x1e293b })
+  );
+  windowFrame.position.set(-ROOM_WIDTH / 2 + 0.2, 3.2, w);
+  scene.add(windowFrame);
+  const glass = new THREE.Mesh(
+    new THREE.BoxGeometry(0.1, 3.0, 2.6),
+    new THREE.MeshBasicMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.35 })
+  );
+  glass.position.set(-ROOM_WIDTH / 2 + 0.2, 3.2, w);
+  scene.add(glass);
+}
+
+// Obstacles (furniture collision)
+const obstacles = [];
+function addObstacleBox(x, z, w, d) {
+  obstacles.push({ minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2 });
+}
+
+const tDesk = new THREE.Mesh(
+  new THREE.BoxGeometry(4.2, 1.4, 1.8),
+  new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.7 })
+);
+tDesk.position.set(0, 0.7, -5.5);
+tDesk.castShadow = true; tDesk.receiveShadow = true;
+scene.add(tDesk);
+addObstacleBox(0, -5.5, 4.4, 2.0);
+
+const deskMat = new THREE.MeshStandardMaterial({ color: 0x152238, roughness: 0.8 });
+const deskXs = [-5.5, 0, 5.5];
+const deskZs = [-1.5, 2.5];
+deskXs.forEach((dx) => {
+  deskZs.forEach((dz) => {
+    const desk = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.2, 1.4), deskMat);
+    desk.position.set(dx, 0.6, dz);
+    desk.castShadow = true; desk.receiveShadow = true;
+    scene.add(desk);
+    addObstacleBox(dx, dz, 2.8, 1.6);
+
+    const chair = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, 0.8, 1.0),
+      new THREE.MeshStandardMaterial({ color: 0x0f172a })
+    );
+    chair.position.set(dx, 0.4, dz + 1.2);
+    chair.castShadow = true;
+    scene.add(chair);
+    addObstacleBox(dx, dz + 1.2, 1.3, 1.1);
+  });
+});
+
+const BOUND_X = ROOM_WIDTH / 2 - 0.8;
+const BOUND_Z = ROOM_DEPTH / 2 - 0.8;
+
+/* =========================================================
+   INTERACTIVE PROPS & PUZZLES
+   ========================================================= */
+
+// 1) FLOOR PRESSURE SWITCH (front-left, near blackboard)
+const switchBase = new THREE.Mesh(
+  new THREE.CylinderGeometry(1.3, 1.4, 0.1, 24),
+  new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.8 })
+);
+switchBase.position.set(-7.5, 0.05, -6.5);
+scene.add(switchBase);
+
+const switchPlateMat = new THREE.MeshStandardMaterial({
+  color: 0x0284c7, emissive: 0x0369a1, emissiveIntensity: 0.4
+});
+const switchPlate = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.0, 0.15, 24), switchPlateMat);
+switchPlate.position.set(-7.5, 0.12, -6.5);
+scene.add(switchPlate);
+
+const switchIndicatorLight = new THREE.PointLight(0x0284c7, 0.8, 4);
+switchIndicatorLight.position.set(-7.5, 0.6, -6.5);
+scene.add(switchIndicatorLight);
+
+// 2) WALL COMPARTMENT / SAFE (east wall) -> Evidence 2
+const SAFE_X = ROOM_WIDTH / 2 - 0.2;
+const SAFE_Z = -4.5;
+const safeCabinet = new THREE.Mesh(
+  new THREE.BoxGeometry(0.3, 1.8, 1.8),
+  new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.5 })
+);
+safeCabinet.position.set(SAFE_X, 2.5, SAFE_Z);
+scene.add(safeCabinet);
+
+const safeDoor = new THREE.Mesh(
+  new THREE.BoxGeometry(0.1, 1.6, 1.6),
+  new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.7 })
+);
+safeDoor.position.set(SAFE_X - 0.1, 2.5, SAFE_Z);
+scene.add(safeDoor);
+
+const safeLight = new THREE.PointLight(0xef4444, 0.8, 3);
+safeLight.position.set(SAFE_X - 0.4, 2.5, SAFE_Z);
+scene.add(safeLight);
+
+// 3) CLUE 1: TORN ATTENDANCE SHEET
+const paperMat = new THREE.MeshStandardMaterial({
+  color: 0xfef08a, emissive: 0xf59e0b, emissiveIntensity: 0.3, roughness: 0.9
+});
+const tornPaper = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.4), paperMat);
+tornPaper.rotation.x = -Math.PI / 2;
+tornPaper.rotation.z = 0.4;
+tornPaper.position.set(-1.8, 0.02, -1.2);
+scene.add(tornPaper);
+
+const paperGlow = new THREE.PointLight(0xf59e0b, 0.6, 2.5);
+paperGlow.position.set(-1.8, 0.4, -1.2);
+scene.add(paperGlow);
+
+// 4) ELECTRICAL PANEL (east wall) -> Evidence 3 + fuse objective
+const PANEL_X = ROOM_WIDTH / 2 - 0.25;
+const PANEL_Z = 2.0;
+const breakerBox = new THREE.Mesh(
+  new THREE.BoxGeometry(0.4, 2.2, 1.8),
+  new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.4 })
+);
+breakerBox.position.set(PANEL_X, 2.4, PANEL_Z);
+breakerBox.castShadow = true;
+scene.add(breakerBox);
+
+// glowing panel door (clickable)
+const breakerDoorMat = new THREE.MeshStandardMaterial({
+  color: 0x1e293b, emissive: 0x38bdf8, emissiveIntensity: 0.28, metalness: 0.5
+});
+const breakerDoor = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.8, 1.4), breakerDoorMat);
+breakerDoor.position.set(PANEL_X - 0.26, 2.4, PANEL_Z);
+scene.add(breakerDoor);
+
+// warning label texture on the panel
+const panelCanvas = document.createElement('canvas');
+panelCanvas.width = 256; panelCanvas.height = 128;
+const ctxP = panelCanvas.getContext('2d');
+ctxP.fillStyle = '#111827'; ctxP.fillRect(0, 0, 256, 128);
+ctxP.fillStyle = '#f59e0b'; ctxP.font = 'bold 22px Courier New';
+ctxP.fillText('SUBSTATION', 62, 42);
+ctxP.fillText('TRIP LOGGER', 58, 72);
+ctxP.fillStyle = '#ef4444'; ctxP.font = '16px Courier New';
+ctxP.fillText('4:20 PM FAULT', 66, 104);
+const panelTex = new THREE.CanvasTexture(panelCanvas);
+const panelLabel = new THREE.Mesh(
+  new THREE.PlaneGeometry(1.05, 0.55),
+  new THREE.MeshBasicMaterial({ map: panelTex, transparent: true })
+);
+panelLabel.position.set(PANEL_X - 0.33, 2.75, PANEL_Z);
+panelLabel.rotation.y = -Math.PI / 2;
+scene.add(panelLabel);
+
+const breakerGlow = new THREE.PointLight(0x38bdf8, 0.9, 3.5);
+breakerGlow.position.set(PANEL_X - 0.8, 2.4, PANEL_Z);
+scene.add(breakerGlow);
+
+// 5) LAB SINK & LEAKING TAP
+const sinkCounter = new THREE.Mesh(
+  new THREE.BoxGeometry(2.2, 1.5, 2.2),
+  new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.6 })
+);
+sinkCounter.position.set(-ROOM_WIDTH / 2 + 1.3, 0.75, ROOM_DEPTH / 2 - 2.0);
+sinkCounter.castShadow = true; sinkCounter.receiveShadow = true;
+scene.add(sinkCounter);
+addObstacleBox(-ROOM_WIDTH / 2 + 1.3, ROOM_DEPTH / 2 - 2.0, 2.4, 2.4);
+
+const faucet = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.06, 0.06, 0.7),
+  new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.9 })
+);
+faucet.position.set(-ROOM_WIDTH / 2 + 1.3, 1.7, ROOM_DEPTH / 2 - 2.0);
+scene.add(faucet);
+
+const dripMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(0.06, 8, 8),
+  new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.7 })
+);
+dripMesh.position.set(-ROOM_WIDTH / 2 + 1.3, 1.4, ROOM_DEPTH / 2 - 2.0);
+scene.add(dripMesh);
+
+// 6) E-WASTE / BATTERY BIN
+const batteryBin = new THREE.Mesh(
+  new THREE.BoxGeometry(1.2, 1.1, 1.2),
+  new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.5 })
+);
+batteryBin.position.set(-ROOM_WIDTH / 2 + 1.2, 0.55, -ROOM_DEPTH / 2 + 2.0);
+batteryBin.castShadow = true;
+scene.add(batteryBin);
+addObstacleBox(-ROOM_WIDTH / 2 + 1.2, -ROOM_DEPTH / 2 + 2.0, 1.4, 1.4);
+
+const binIcon = new THREE.PointLight(0x22c55e, 0.8, 2.5);
+binIcon.position.set(-ROOM_WIDTH / 2 + 1.2, 1.2, -ROOM_DEPTH / 2 + 2.0);
+scene.add(binIcon);
+
+// 7) EXIT DOOR
+const exitDoor = new THREE.Mesh(
+  new THREE.BoxGeometry(3.0, 3.8, 0.2),
+  new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.4 })
+);
+exitDoor.position.set(0, 1.9, ROOM_DEPTH / 2 - 0.1);
+scene.add(exitDoor);
+
+const doorCardReader = new THREE.Mesh(
+  new THREE.BoxGeometry(0.3, 0.5, 0.2),
+  new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xef4444, emissiveIntensity: 0.5 })
+);
+doorCardReader.position.set(1.9, 1.8, ROOM_DEPTH / 2 - 0.2);
+scene.add(doorCardReader);
+
+/* =========================================================
+   ACTORS: PLAYER & GHOST ECHO
+   ========================================================= */
+function createCharacterMesh(isGhost) {
+  const group = new THREE.Group();
+  const bodyMat = isGhost
+    ? new THREE.MeshStandardMaterial({ color: 0x06b6d4, emissive: 0x0891b2, emissiveIntensity: 0.9, transparent: true, opacity: 0.65 })
+    : new THREE.MeshStandardMaterial({ color: 0x1e3a8a, roughness: 0.7 });
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.4, 1.2, 16), bodyMat);
+  body.position.y = 0.9;
+  body.castShadow = !isGhost;
+  group.add(body);
+
+  const headMat = isGhost
+    ? new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x06b6d4, transparent: true, opacity: 0.75 })
+    : new THREE.MeshStandardMaterial({ color: 0xfde047, roughness: 0.5 });
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 16, 16), headMat);
+  head.position.y = 1.7;
+  head.castShadow = !isGhost;
+  group.add(head);
+
+  const lightSource = new THREE.SpotLight(
+    isGhost ? 0x06b6d4 : 0xfef08a,
+    isGhost ? 1.0 : 2.5,
+    14, Math.PI / 5, 0.4, 1.5
+  );
+  lightSource.position.set(0.3, 1.0, 0.2);
+  lightSource.target.position.set(0, 1.0, 4);
+  group.add(lightSource);
+  group.add(lightSource.target);
+  return group;
+}
+
+const player = createCharacterMesh(false);
+player.position.set(0, 0, ROOM_DEPTH / 2 - 3.5);
+scene.add(player);
+
+const echoGhost = createCharacterMesh(true);
+echoGhost.visible = false;
+scene.add(echoGhost);
+
+/* =========================================================
+   INTERACTION DEFINITIONS
+   (positions here are used for HORIZONTAL X/Z proximity only)
+   ========================================================= */
+const interactables = [
+  {
+    id: 'attendance',
+    pos: new THREE.Vector3(-1.8, 0.2, -1.2),
+    radius: 3.0,
+    label: "Examine Torn Attendance Sheet",
+    meshes: [tornPaper],
+    action: function () {
+      if (!evidenceState.attendanceSheet) {
+        evidenceState.attendanceSheet = true;
+        sound.chimeClue();
+        showBanner("CLUE 1/3 FOUND: Attendance sheet verifies Maya Lin was in class at 4:19 PM!");
+        updateEvidenceUI();
+        paperGlow.intensity = 0.12;
+        tornPaper.material.emissiveIntensity = 0.08;
+      } else {
+        showBanner("Attendance Record: Maya's signature is authentic and time-stamped 4:19 PM.");
+      }
+    }
+  },
+  {
+    id: 'safe',
+    pos: new THREE.Vector3(ROOM_WIDTH / 2 - 0.5, 2.2, SAFE_Z),
+    radius: 3.0,
+    label: "Loot Wall Archive Compartment",
+    meshes: [safeCabinet, safeDoor],
+    action: function () {
+      if (!wallSafeOpen) {
+        showBanner("Compartment LOCKED: the heavy floor pressure switch is not engaged!");
+        sound.playTone(120, 'square', 0.2, 0.1);
+      } else if (!evidenceState.maintenanceLog) {
+        evidenceState.maintenanceLog = true;
+        sound.chimeClue();
+        showBanner("CLUE 2/3 FOUND: Maintenance log shows an IGNORED transformer failure warning!");
+        updateEvidenceUI();
+        safeLight.intensity = 0.25;
+      } else {
+        showBanner("Archive Compartment: You already secured the Altered Maintenance Log.");
+      }
+    }
+  },
+  {
+    id: 'breaker',
+    pos: new THREE.Vector3(ROOM_WIDTH / 2 - 0.7, 1.6, PANEL_Z),
+    radius: 3.4,
+    label: "Inspect Breaker Panel & Decode Trip Log",
+    meshes: [breakerBox, breakerDoor, panelLabel],
+    action: function () {
+      let updated = false;
+      if (!taskState.fuse) {
+        taskState.fuse = true;
+        addCampusHealth(35);
+        const li = document.getElementById('task-fuse');
+        li.classList.add('done');
+        li.innerHTML = '<span>[✓]</span> Restore Breaker / Lighting';
+        ceilingLight.intensity = 2.2;
+        sound.clickSwitch();
+        showBanner("Breaker load balanced: classroom lighting restored to the campus grid.");
+        updated = true;
+      }
+      if (!evidenceState.circuitBreaker) {
+        evidenceState.circuitBreaker = true;
+        sound.chimeClue();
+        showBanner("CLUE 3/3 FOUND: Substation Trip Log confirms the grid surge blew the breaker at 4:20 PM!");
+        updateEvidenceUI();
+        breakerGlow.color.setHex(0x10b981);
+        breakerDoorMat.emissive.setHex(0x10b981);
+        breakerDoorMat.emissiveIntensity = 0.6;
+        updated = true;
+      }
+      if (!updated) {
+        showBanner("Substation Panel: Load balanced, trip log already decoded and archived.");
+      }
+    }
+  },
+  {
+    id: 'tap',
+    pos: new THREE.Vector3(-ROOM_WIDTH / 2 + 1.4, 1.2, ROOM_DEPTH / 2 - 2.0),
+    radius: 3.0,
+    label: "Tighten Leaking Water Tap Valve",
+    meshes: [sinkCounter, faucet],
+    action: function () {
+      if (!taskState.tap) {
+        taskState.tap = true;
+        addCampusHealth(35);
+        const li = document.getElementById('task-tap');
+        li.classList.add('done');
+        li.innerHTML = '<span>[✓]</span> Repair Leaking Water Spigot';
+        sound.clickSwitch();
+        showBanner("Water conservation restored. Lab tap sealed.");
+      } else {
+        showBanner("The tap valve is tightly shut. No water is wasting.");
+      }
+    }
+  },
+  {
+    id: 'battery',
+    pos: new THREE.Vector3(-ROOM_WIDTH / 2 + 1.3, 1.0, -ROOM_DEPTH / 2 + 2.0),
+    radius: 2.8,
+    label: "Sort Hazardous Lithium Batteries",
+    meshes: [batteryBin],
+    action: function () {
+      if (!taskState.battery) {
+        taskState.battery = true;
+        addCampusHealth(30);
+        const li = document.getElementById('task-battery');
+        li.classList.add('done');
+        li.innerHTML = '<span>[✓]</span> Sort Discarded Lithium Cells';
+        sound.clickSwitch();
+        showBanner("E-waste bin safely sorted for green recycling.");
+      } else {
+        showBanner("Battery bin is properly sorted.");
+      }
+    }
+  },
+  {
+    id: 'exit',
+    pos: new THREE.Vector3(0, 1.5, ROOM_DEPTH / 2 - 0.8),
+    radius: 3.2,
+    label: "Unlock Exit with Reconstructed Dossier",
+    meshes: [exitDoor, doorCardReader],
+    action: function () {
+      if (evidenceState.attendanceSheet && evidenceState.maintenanceLog && evidenceState.circuitBreaker) {
+        sound.chimeClue();
+        openModal('victoryModal');
+      } else {
+        showBanner("Exit locked. Recover all 3 pieces of evidence to overturn the blame.");
+        sound.playTone(140, 'sine', 0.2, 0.1);
+      }
+    }
+  }
+];
+
+// Fast lookup from mesh -> interactable
+const meshToInteractable = new Map();
+interactables.forEach((it) => {
+  (it.meshes || []).forEach((m) => {
+    if (m) meshToInteractable.set(m.uuid, it);
+  });
+});
+
+let nearbyInteractable = null;
+
+function addCampusHealth(amount) {
+  campusHealth = Math.min(100, campusHealth + amount);
+  document.getElementById('campusHealthVal').innerText = campusHealth + "%";
+  document.getElementById('campusHealthBar').style.width = campusHealth + "%";
+}
+
+function updateEvidenceUI() {
+  let count = 0;
+  if (evidenceState.attendanceSheet) {
+    count++;
+    const card = document.getElementById('ev-card-1');
+    card.classList.add('found');
+    const tag = card.querySelector('.status-tag');
+    tag.innerText = 'VERIFIED'; tag.style.color = '#34d399';
+    document.getElementById('ev-desc-1').innerText =
+      "Attests Maya Lin was present in Class 104 at 4:19 PM, refuting sabotage claims.";
+  }
+  if (evidenceState.maintenanceLog) {
+    count++;
+    const card = document.getElementById('ev-card-2');
+    card.classList.add('found');
+    const tag = card.querySelector('.status-tag');
+    tag.innerText = 'VERIFIED'; tag.style.color = '#34d399';
+    document.getElementById('ev-desc-2').innerText =
+      "Discloses supervisor disregarded warning flags of overheating busbars.";
+  }
+  if (evidenceState.circuitBreaker) {
+    count++;
+    const card = document.getElementById('ev-card-3');
+    card.classList.add('found');
+    const tag = card.querySelector('.status-tag');
+    tag.innerText = 'VERIFIED'; tag.style.color = '#34d399';
+    document.getElementById('ev-desc-3').innerText =
+      "Internal surge trip occurred precisely at 4:20 PM due to cooling equipment failure.";
+  }
+  document.getElementById('evidenceCount').innerText = count;
+  if (count === 3) {
+    doorCardReader.material.color.setHex(0x10b981);
+    doorCardReader.material.emissive.setHex(0x10b981);
+    doorCardReader.material.emissiveIntensity = 0.9;
+    showBanner("ALL 3 RECORDS SECURED! Approach the exit door to clear Maya's name.");
+  }
+}
+
+function triggerInteraction(target) {
+  const it = target || nearbyInteractable;
+  if (it && typeof it.action === 'function') {
+    sound.ensureContext();
+    it.action();
+    return true;
+  }
+  return false;
+}
+
+let bannerTimer = null;
+function showBanner(text) {
+  const banner = document.getElementById('narrative-banner');
+  banner.innerText = text;
+  banner.style.opacity = '1';
+  if (bannerTimer) clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(() => { banner.style.opacity = '0'; }, 4600);
+}
+
+/* =========================================================
+   TIME LOOP CONTROLLER & ECHO PLAYBACK
+   ========================================================= */
+function resetLoop() {
+  sound.loopWhoosh();
+  loopRemaining = LOOP_DURATION;
+  loopNumber++;
+
+  if (currentRecording.length > 0) {
+    echoPlaybackTrail = currentRecording.slice();
+    echoGhost.visible = true;
+    const badge = document.getElementById('echoStatusBadge');
+    badge.classList.remove('echo-recording');
+    const txt = document.getElementById('echoStatusText');
+    txt.innerText = "ECHO ACTIVE (LOOP " + (loopNumber - 1) + " GHOST)";
+    txt.style.color = "#38bdf8";
+  }
+  currentRecording = [];
+
+  player.position.set(0, 0, ROOM_DEPTH / 2 - 3.5);
+  player.rotation.y = Math.PI;
+  showBanner("TEMPORAL REWIND: LOOP " + loopNumber + " INITIATED");
+}
+
+/* =========================================================
+   INPUT & CONTROLS
+   ========================================================= */
+function handleKeyDown(e) {
+  sound.ensureContext();
+  const k = (e.key || '').toLowerCase();
+
+  if (k === 'w' || k === 'arrowup') { keys.w = true; e.preventDefault(); }
+  if (k === 'a' || k === 'arrowleft') { keys.a = true; e.preventDefault(); }
+  if (k === 's' || k === 'arrowdown') { keys.s = true; e.preventDefault(); }
+  if (k === 'd' || k === 'arrowright') { keys.d = true; e.preventDefault(); }
+
+  if (k === 'e' || k === ' ' || k === 'enter') {
+    e.preventDefault();
+    triggerInteraction();
+  }
+  if (k === 'r') {
+    e.preventDefault();
+    resetLoop();
+  }
+  if (k === 'escape') {
+    closeAllModals();
+  }
+}
+function handleKeyUp(e) {
+  const k = (e.key || '').toLowerCase();
+  if (k === 'w' || k === 'arrowup') keys.w = false;
+  if (k === 'a' || k === 'arrowleft') keys.a = false;
+  if (k === 's' || k === 'arrowdown') keys.s = false;
+  if (k === 'd' || k === 'arrowright') keys.d = false;
+}
+
+// Attach at BOTH window and document level (some preview iframes swallow
+// events targeted at window only when the frame lacks focus).
+window.addEventListener('keydown', handleKeyDown, { passive: false });
+window.addEventListener('keyup', handleKeyUp);
+document.addEventListener('keydown', handleKeyDown, { passive: false });
+document.addEventListener('keyup', handleKeyUp);
+window.addEventListener('blur', () => { keys.w = keys.a = keys.s = keys.d = false; });
+
+// Tap anywhere on the scene first to focus + resume audio
+document.addEventListener('pointerdown', () => { sound.ensureContext(); }, { passive: true });
+
+// Touch D-Pad
+const bindTouchDir = (id, k) => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const on = (ev) => { ev.preventDefault(); ev.stopPropagation(); keys[k] = true; sound.ensureContext(); };
+  const off = (ev) => { if (ev) { ev.preventDefault(); ev.stopPropagation(); } keys[k] = false; };
+  el.addEventListener('touchstart', on, { passive: false });
+  el.addEventListener('touchend', off, { passive: false });
+  el.addEventListener('touchcancel', off, { passive: false });
+  el.addEventListener('mousedown', on);
+  el.addEventListener('mouseup', off);
+  el.addEventListener('mouseleave', off);
+};
+bindTouchDir('btn-up', 'w');
+bindTouchDir('btn-down', 's');
+bindTouchDir('btn-left', 'a');
+bindTouchDir('btn-right', 'd');
+
+// Mobile interact button
+(function () {
+  const btn = document.getElementById('btn-interact');
+  if (!btn) return;
+  const fire = (ev) => { ev.preventDefault(); ev.stopPropagation(); sound.ensureContext(); triggerInteraction(); };
+  btn.addEventListener('touchstart', fire, { passive: false });
+  btn.addEventListener('mousedown', fire);
+})();
+
+/* =========================================================
+   MODAL HELPERS
+   ========================================================= */
+function openModal(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.add('active');
+}
+function closeModal(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.remove('active');
+}
+function closeAllModals() {
+  document.querySelectorAll('.modal-overlay').forEach((m) => m.classList.remove('active'));
+}
+
+document.getElementById('btn-journal').addEventListener('click', () => openModal('journalModal'));
+document.getElementById('btn-close-journal').addEventListener('click', () => closeModal('journalModal'));
+document.getElementById('btn-help').addEventListener('click', () => openModal('helpModal'));
+document.getElementById('btn-close-help').addEventListener('click', () => closeModal('helpModal'));
+document.getElementById('btn-reset').addEventListener('click', () => resetLoop());
+document.getElementById('btn-mute').addEventListener('click', () => {
+  sound.ensureContext();
+  const active = sound.toggle();
+  document.getElementById('audioStatus').innerText = active ? 'ON' : 'OFF';
+});
+document.getElementById('btn-replay').addEventListener('click', () => location.reload());
+
+// Prompt click -> interact
+document.getElementById('promptBox').addEventListener('click', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  triggerInteraction();
+});
+
+/* =========================================================
+   COLLISION & MOVEMENT
+   ========================================================= */
+function checkCollision(nx, nz) {
+  if (nx < -BOUND_X || nx > BOUND_X || nz < -BOUND_Z || nz > BOUND_Z) return true;
+  for (let i = 0; i < obstacles.length; i++) {
+    const obs = obstacles[i];
+    if (
+      nx + playerRadius > obs.minX && nx - playerRadius < obs.maxX &&
+      nz + playerRadius > obs.minZ && nz - playerRadius < obs.maxZ
+    ) return true;
+  }
+  return false;
+}
+
+/* =========================================================
+   POINTER / CLICK INTERACTION (raycast on the 3D objects)
+   ========================================================= */
+const raycaster = new THREE.Raycaster();
+const pointerNDC = new THREE.Vector2();
+
+function pickInteractableAt(clientX, clientY) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointerNDC.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  pointerNDC.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointerNDC, camera);
+
+  const targets = [];
+  interactables.forEach((it) => (it.meshes || []).forEach((m) => { if (m) targets.push(m); }));
+  const hits = raycaster.intersectObjects(targets, true);
+  for (let i = 0; i < hits.length; i++) {
+    let obj = hits[i].object;
+    while (obj) {
+      if (obj.uuid && meshToInteractable.has(obj.uuid)) return meshToInteractable.get(obj.uuid);
+      obj = obj.parent;
+    }
+  }
+  return null;
+}
+
+function onScenePointer(e) {
+  sound.ensureContext();
+  // Ignore clicks on UI overlays
+  const t = e.target;
+  if (t && t.closest && t.closest('.modal-overlay, .hud-btn, .interaction-prompt, .touch-controls, .touch-interact')) return;
+
+  const cx = (e.clientX !== undefined) ? e.clientX : (e.touches && e.touches[0] && e.touches[0].clientX);
+  const cy = (e.clientY !== undefined) ? e.clientY : (e.touches && e.touches[0] && e.touches[0].clientY);
+  if (cx === undefined) return;
+
+  const picked = pickInteractableAt(cx, cy);
+  if (picked) {
+    // If the player is already near it (or the click was directly on it), fire.
+    triggerInteraction(picked);
+    return;
+  }
+  // Otherwise fall back to the current nearby prompt target
+  if (nearbyInteractable) triggerInteraction(nearbyInteractable);
+}
+
+renderer.domElement.addEventListener('click', onScenePointer);
+renderer.domElement.addEventListener('touchend', (ev) => {
+  if (ev.changedTouches && ev.changedTouches.length) {
+    const t = ev.changedTouches[0];
+    onScenePointer({ clientX: t.clientX, clientY: t.clientY, target: ev.target });
+  }
+}, { passive: true });
+
+/* =========================================================
+   MAIN GAME LOOP
+   ========================================================= */
+const clock = new THREE.Clock();
+let dripTimer = 0;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const delta = Math.min(clock.getDelta(), 0.1);
+  const elapsedTime = clock.getElapsedTime();
+
+  // 1) Loop timer
+  loopRemaining -= delta;
+  if (loopRemaining <= 0) resetLoop();
+
+  const mins = Math.floor(loopRemaining / 60);
+  const secs = Math.floor(loopRemaining % 60);
+  const timerElem = document.getElementById('timerDisplay');
+  timerElem.innerHTML =
+    String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0') +
+    '<span style="font-size:12px; color:#94a3b8;">&nbsp;PM 4:20</span>';
+  if (loopRemaining < 15) timerElem.classList.add('urgent');
+  else timerElem.classList.remove('urgent');
+
+  // 2) Player movement
+  let moveX = 0, moveZ = 0;
+  if (keys.w) moveZ -= 1;
+  if (keys.s) moveZ += 1;
+  if (keys.a) moveX -= 1;
+  if (keys.d) moveX += 1;
+
+  if (moveX !== 0 || moveZ !== 0) {
+    const len = Math.hypot(moveX, moveZ);
+    const stepX = (moveX / len) * playerSpeed * delta;
+    const stepZ = (moveZ / len) * playerSpeed * delta;
+    if (!checkCollision(player.position.x + stepX, player.position.z)) player.position.x += stepX;
+    if (!checkCollision(player.position.x, player.position.z + stepZ)) player.position.z += stepZ;
+    player.rotation.y = Math.atan2(moveX, moveZ);
+  }
+
+  // 3) Pressure switch + echo playback
+  const switchCenterX = -7.5, switchCenterZ = -6.5;
+  const pdx = player.position.x - switchCenterX;
+  const pdz = player.position.z - switchCenterZ;
+  const playerOnSwitch = Math.sqrt(pdx * pdx + pdz * pdz) < 1.35;
+
+  let echoOnSwitch = false;
+  const currentLoopElapsed = LOOP_DURATION - loopRemaining;
+
+  if (echoPlaybackTrail && echoPlaybackTrail.length > 0) {
+    let targetIndex = 0;
+    for (let i = 0; i < echoPlaybackTrail.length; i++) {
+      targetIndex = i;
+      if (echoPlaybackTrail[i].time >= currentLoopElapsed) break;
+    }
+    const snapshot = echoPlaybackTrail[targetIndex];
+    if (snapshot) {
+      echoGhost.position.set(snapshot.x, 0, snapshot.z);
+      echoGhost.rotation.y = snapshot.rot;
+      echoOnSwitch = !!snapshot.onSwitch;
+      const ghostPulse = 0.55 + Math.sin(elapsedTime * 6) * 0.2;
+      echoGhost.children[0].material.opacity = ghostPulse;
+    }
+    if (currentLoopElapsed > echoPlaybackTrail[echoPlaybackTrail.length - 1].time + 2.5) {
+      echoGhost.visible = false;
+    }
+  }
+
+  currentRecording.push({
+    time: currentLoopElapsed,
+    x: player.position.x,
+    z: player.position.z,
+    rot: player.rotation.y,
+    onSwitch: playerOnSwitch
+  });
+
+  const wasPressed = switchIsPressed;
+  switchIsPressed = playerOnSwitch || echoOnSwitch;
+
+  if (switchIsPressed) {
+    switchPlate.position.y = 0.05;
+    switchPlateMat.color.setHex(0x10b981);
+    switchPlateMat.emissive.setHex(0x059669);
+    switchIndicatorLight.color.setHex(0x10b981);
+    safeDoor.position.x = SAFE_X - 1.0;
+    safeLight.color.setHex(0x10b981);
+    wallSafeOpen = true;
+    if (!wasPressed) sound.clickSwitch();
+  } else {
+    switchPlate.position.y = 0.12;
+    switchPlateMat.color.setHex(0x0284c7);
+    switchPlateMat.emissive.setHex(0x0369a1);
+    switchIndicatorLight.color.setHex(0x0284c7);
+    safeDoor.position.x = SAFE_X - 0.1;
+    safeLight.color.setHex(0xef4444);
+    wallSafeOpen = false;
+  }
+
+  // 4) Interaction proximity (HORIZONTAL X/Z distance ONLY)
+  let best = null;
+  let bestDist = Infinity;
+  for (let i = 0; i < interactables.length; i++) {
+    const item = interactables[i];
+    const dx = player.position.x - item.pos.x;
+    const dz = player.position.z - item.pos.z;
+    const dist = Math.sqrt(dx * dx + dz * dz);   // <-- ignores Y height differences
+    if (dist <= item.radius && dist < bestDist) {
+      best = item;
+      bestDist = dist;
+    }
+  }
+  nearbyInteractable = best;
+
+  const promptBox = document.getElementById('promptBox');
+  const promptText = document.getElementById('promptText');
+  if (nearbyInteractable) {
+    if (promptText.innerText !== nearbyInteractable.label) {
+      promptText.innerText = nearbyInteractable.label;
+    }
+    if (promptBox.style.display !== 'block') promptBox.style.display = 'block';
+  } else {
+    if (promptBox.style.display !== 'none') promptBox.style.display = 'none';
+  }
+
+  // 5) Atmospheric FX
+  if (Math.random() < 0.035) ceilingLight.intensity = 0.3 + Math.random() * 1.5;
+
+  const posArr = dustGeometry.attributes.position.array;
+  for (let i = 1; i < posArr.length; i += 3) {
+    posArr[i] += delta * 0.25;
+    if (posArr[i] > 6.2) posArr[i] = 0.1;
+  }
+  dustGeometry.attributes.position.needsUpdate = true;
+
+  if (!taskState.tap) {
+    dripTimer += delta * 3.5;
+    dripMesh.position.y = 1.4 - (dripTimer % 0.8) * 1.5;
+    if ((dripTimer % 0.8) < 0.08 && Math.random() < 0.25) sound.dripWater();
+  } else {
+    dripMesh.visible = false;
+  }
+
+  // 6) Camera follow
+  camera.position.x = THREE.MathUtils.lerp(camera.position.x, player.position.x * 0.4 + cameraOffset.x, 0.05);
+  camera.position.y = THREE.MathUtils.lerp(camera.position.y, cameraOffset.y, 0.05);
+  camera.position.z = THREE.MathUtils.lerp(camera.position.z, player.position.z * 0.4 + cameraOffset.z, 0.05);
+  camera.lookAt(player.position.x * 0.7, 1.2, player.position.z * 0.7);
+
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+animate();
+showBanner("LEVEL 1: THE LAST ATTENDANCE (4:20 PM) - INVESTIGATE THE POWER OUTAGE");
+</script>
+</body>
+</html>
